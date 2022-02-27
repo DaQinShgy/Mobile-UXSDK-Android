@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.graphics.Point;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.Display;
 import android.view.View;
 import android.view.ViewGroup;
@@ -12,11 +13,31 @@ import android.view.animation.Animation;
 import android.view.animation.Transformation;
 import android.widget.FrameLayout;
 import android.widget.RelativeLayout;
+import android.widget.Toast;
 
 import com.dji.mapkit.core.maps.DJIMap;
+import com.dji.ux.sample.mqtt.IMqttCallBack;
+import com.dji.ux.sample.mqtt.SmartMqtt;
 
+import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
+import org.eclipse.paho.client.mqttv3.IMqttToken;
+import org.eclipse.paho.client.mqttv3.MqttMessage;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.UUID;
+
+import androidx.annotation.NonNull;
+import dji.common.error.DJIError;
+import dji.common.flightcontroller.FlightControllerState;
+import dji.common.util.CommonCallbacks;
 import dji.keysdk.CameraKey;
 import dji.keysdk.KeyManager;
+import dji.sdk.flightcontroller.FlightController;
+import dji.sdk.products.Aircraft;
+import dji.sdk.sdkmanager.DJISDKManager;
 import dji.ux.panel.CameraSettingAdvancedPanel;
 import dji.ux.panel.CameraSettingExposurePanel;
 import dji.ux.utils.DJIProductUtil;
@@ -33,6 +54,8 @@ import dji.ux.widget.config.CameraConfigStorageWidget;
 import dji.ux.widget.config.CameraConfigWBWidget;
 import dji.ux.widget.controls.CameraControlsWidget;
 import dji.ux.widget.controls.LensControlWidget;
+
+import static com.dji.ux.sample.mqtt.SmartMqtt.ACTION_CONNECT;
 
 /**
  * Activity that shows all the UI elements together
@@ -101,6 +124,154 @@ public class CompleteWidgetActivity extends Activity {
 
         fpvWidget.setCameraIndexListener((cameraIndex, lensIndex) -> cameraWidgetKeyIndexUpdated(fpvWidget.getCameraKeyIndex(), fpvWidget.getLensKeyIndex()));
         updateSecondaryVideoVisibility();
+
+        initSerialNumber();
+
+        SmartMqtt.getInstance().init(this);
+        SmartMqtt.getInstance().connect("tcp://mqtt.zjlin123.com:1883", "dji" + UUID.randomUUID().toString());
+        SmartMqtt.getInstance().setIMqttCallBack(new IMqttCallBack() {
+            @Override
+            public void onActionSuccess(int action, IMqttToken asyncActionToken) {
+                if (action == ACTION_CONNECT) {
+                    initTimer();
+                }
+            }
+
+            @Override
+            public void onActionFailure(int action, IMqttToken asyncActionToken, Throwable exception) {
+
+            }
+
+            @Override
+            public void onActionFailure(int action, Exception e) {
+
+            }
+
+            @Override
+            public void connectionLost(Throwable cause) {
+
+            }
+
+            @Override
+            public void messageArrived(String topic, MqttMessage message) {
+
+            }
+
+            @Override
+            public void deliveryComplete(IMqttDeliveryToken token) {
+
+            }
+        });
+
+        String rtmpUrl = getIntent().getStringExtra(MainActivity.LAST_USED_RTMP);
+        startLiveShow(rtmpUrl);
+    }
+
+    private Timer timer;
+
+    private void initTimer() {
+        if (timer != null) {
+            return;
+        }
+        timer = new Timer();
+        TimerTask task = new TimerTask() {
+            @Override
+            public void run() {
+                JSONObject jsonObject = new JSONObject();
+                try {
+                    jsonObject.put("dataVersion", 1);
+                    jsonObject.put("dataCmds", 1);
+                    jsonObject.put("uavSn", "0ASUG1B00400HN");
+                    JSONObject jsonObjectInner = new JSONObject();
+                    jsonObjectInner.put("timestamp", System.currentTimeMillis());
+                    jsonObjectInner.put("droneLongitude", mAircraftLng);//无人机经度
+                    jsonObjectInner.put("droneLatitude", mAircraftLat);//无人机纬度
+                    jsonObjectInner.put("altitude", mAircraftAltitude);//无人机高度
+                    jsonObjectInner.put("speed", mSpeed);//无人机飞行速度：单位：米/秒）
+                    jsonObjectInner.put("electricQuantity", "");//无人机剩余电量，取值范围（0-100）
+                    jsonObjectInner.put("orientation", "");//无人机机头朝向
+                    jsonObjectInner.put("seqNum", "");//卫星信号强度
+                    jsonObjectInner.put("receivedSeqNum", "");//接收卫星数量
+                    jsonObjectInner.put("homeLongitude", mAircraftHomeLng);//无人机返航点经度
+                    jsonObjectInner.put("homeLatitude", mAircraftHomeLat);//无人机返航点纬度
+                    jsonObjectInner.put("appGPSLongitude", "");//飞手位置经度
+                    jsonObjectInner.put("appGPSLatitude", "");//飞手位置纬度
+                    jsonObjectInner.put("status", "");//无人机当前状态
+                    jsonObject.put("data", jsonObjectInner);
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+
+                SmartMqtt.getInstance().sendData(jsonObject.toString(), "uav.dji.status." + serialNumber);
+                Log.e("tag", "==========");
+            }
+        };
+        timer.schedule(task, 0, 100);
+    }
+
+    private FlightController flightController;
+    private String serialNumber = "";
+    private double mAircraftLat = 0.0;
+    private double mAircraftLng = 0.0;
+    private float mAircraftAltitude = 0.0f;
+    private float mSpeed = 0.0f;
+    private double mAircraftHomeLat = 0.0;
+    private double mAircraftHomeLng = 0.0;
+
+    private void initSerialNumber() {
+        Aircraft aircraft = (Aircraft) DJISDKManager.getInstance().getProduct();
+        if (null != aircraft && null != aircraft.getFlightController()) {
+            flightController = aircraft.getFlightController();
+            flightController.getSerialNumber(new CommonCallbacks.CompletionCallbackWith<String>() {
+                @Override
+                public void onSuccess(String s) {
+                    serialNumber = s;
+                }
+
+                @Override
+                public void onFailure(DJIError djiError) {
+                    Toast.makeText(CompleteWidgetActivity.this, "getSerialNumber failed: " + djiError.getDescription(), Toast.LENGTH_SHORT).show();
+                }
+            });
+            flightController.setStateCallback(flightControllerState -> {
+                mAircraftLat = flightControllerState.getAircraftLocation().getLatitude();
+                mAircraftLng = flightControllerState.getAircraftLocation().getLongitude();
+                mAircraftAltitude = flightControllerState.getAircraftLocation().getAltitude();
+                mAircraftHomeLat = flightControllerState.getHomeLocation().getLatitude();
+                mAircraftHomeLng = flightControllerState.getHomeLocation().getLongitude();
+            });
+            flightController.getCinematicYawSpeed(new CommonCallbacks.CompletionCallbackWith<Float>() {
+                @Override
+                public void onSuccess(Float aFloat) {
+                    mSpeed = aFloat;
+                }
+
+                @Override
+                public void onFailure(DJIError djiError) {
+
+                }
+
+            });
+        }
+    }
+
+    private void startLiveShow(String liveShowUrl) {
+        if (DJISDKManager.getInstance().getLiveStreamManager().isStreaming()) {
+            Toast.makeText(this, "already started!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new Thread() {
+            @Override
+            public void run() {
+                DJISDKManager.getInstance().getLiveStreamManager().setLiveUrl(liveShowUrl);
+                int result = DJISDKManager.getInstance().getLiveStreamManager().startStream();
+                DJISDKManager.getInstance().getLiveStreamManager().setStartTime();
+
+                Log.e("live", "startLive:" + result +
+                        "\n isVideoStreamSpeedConfigurable:" + DJISDKManager.getInstance().getLiveStreamManager().isVideoStreamSpeedConfigurable() +
+                        "\n isLiveAudioEnabled:" + DJISDKManager.getInstance().getLiveStreamManager().isLiveAudioEnabled());
+            }
+        }.start();
     }
 
     private void initCameraView() {
