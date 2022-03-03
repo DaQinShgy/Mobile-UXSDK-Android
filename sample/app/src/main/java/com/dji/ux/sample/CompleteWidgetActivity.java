@@ -21,6 +21,7 @@ import com.dji.ux.sample.mqtt.SmartMqtt;
 
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.IMqttToken;
+import org.eclipse.paho.client.mqttv3.MqttCallback;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -56,6 +57,7 @@ import dji.ux.widget.controls.CameraControlsWidget;
 import dji.ux.widget.controls.LensControlWidget;
 
 import static com.dji.ux.sample.mqtt.SmartMqtt.ACTION_CONNECT;
+import static com.dji.ux.sample.mqtt.SmartMqtt.ACTION_SUBSCRIBE;
 
 /**
  * Activity that shows all the UI elements together
@@ -134,6 +136,8 @@ public class CompleteWidgetActivity extends Activity {
             public void onActionSuccess(int action, IMqttToken asyncActionToken) {
                 if (action == ACTION_CONNECT) {
                     initTimer();
+                } else if (action == ACTION_SUBSCRIBE) {
+
                 }
             }
 
@@ -155,6 +159,23 @@ public class CompleteWidgetActivity extends Activity {
             @Override
             public void messageArrived(String topic, MqttMessage message) {
 
+            }
+
+            @Override
+            public void deliveryComplete(IMqttDeliveryToken token) {
+
+            }
+        });
+        SmartMqtt.getInstance().subscribe("uav.dji.status." + serialNumber, new MqttCallback() {
+            @Override
+            public void connectionLost(Throwable cause) {
+            }
+
+            @Override
+            public void messageArrived(String topic, MqttMessage message) {
+                Log.d("tag", "message>>" + new String(message.getPayload()));
+                Log.d("tag", "topic>>" + topic);
+                Toast.makeText(CompleteWidgetActivity.this, new String(message.getPayload()), Toast.LENGTH_SHORT).show();
             }
 
             @Override
@@ -203,6 +224,7 @@ public class CompleteWidgetActivity extends Activity {
                 }
 
                 SmartMqtt.getInstance().sendData(jsonObject.toString(), "uav.dji.status." + serialNumber);
+                SmartMqtt.getInstance().sendData(jsonObject.toString(), "uav.dji.status");
                 Log.e("tag", "==========");
             }
         };

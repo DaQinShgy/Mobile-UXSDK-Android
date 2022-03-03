@@ -167,7 +167,8 @@ public class SmartMqtt {
             //连接失败
         }
     }
-    public void connect(String serverURI, String clientId,String user,String password) {
+
+    public void connect(String serverURI, String clientId, String user, String password) {
         this.clienID = clientId;
         //第一个参数上下文，第二个 服务器地址， 第三个 客户端ID，如果存在此ID连接了服务器。那么连接失败！
         //登陆的名字
@@ -258,6 +259,29 @@ public class SmartMqtt {
             e.printStackTrace();
         }
     }
+
+    public void subscribe(String topic, MqttCallback callback) {
+        if (client == null || !client.isConnected()) {
+            return;
+        }
+        try {
+            client.unsubscribe(topic);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        try {
+            client.subscribe(topic, 0);
+            client.setCallback(callback);
+
+        } catch (MqttException e) {
+            if (iMqttCallBack != null) {
+                iMqttCallBack.onActionFailure(ACTION_SUBSCRIBE, e);
+            }
+            e.printStackTrace();
+        }
+    }
+
     public void subscribe(String deviceId) {
         if (client == null || !client.isConnected()) {
             return;
@@ -293,6 +317,7 @@ public class SmartMqtt {
             e.printStackTrace();
         }
     }
+
     public boolean isConnned() {
         return client != null && client.isConnected();
     }
@@ -303,7 +328,7 @@ public class SmartMqtt {
 
     public void release() throws MqttException {
         isInit = false;
-        if (client !=null && client.isConnected()) {
+        if (client != null && client.isConnected()) {
             client.disconnect();
         }
         client = null;
