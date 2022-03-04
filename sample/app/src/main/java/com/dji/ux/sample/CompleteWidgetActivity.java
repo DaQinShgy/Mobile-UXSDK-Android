@@ -1,5 +1,8 @@
 package com.dji.ux.sample;
 
+import static com.dji.ux.sample.mqtt.SmartMqtt.ACTION_CONNECT;
+import static com.dji.ux.sample.mqtt.SmartMqtt.ACTION_SUBSCRIBE;
+
 import android.app.Activity;
 import android.content.Context;
 import android.graphics.Point;
@@ -22,21 +25,30 @@ import com.dji.ux.sample.mqtt.SmartMqtt;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.IMqttToken;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
+import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.UUID;
 
-import androidx.annotation.NonNull;
 import dji.common.error.DJIError;
-import dji.common.flightcontroller.FlightControllerState;
+import dji.common.mission.waypoint.Waypoint;
+import dji.common.mission.waypoint.WaypointMission;
+import dji.common.mission.waypoint.WaypointMissionFinishedAction;
+import dji.common.mission.waypoint.WaypointMissionFlightPathMode;
+import dji.common.mission.waypoint.WaypointMissionHeadingMode;
 import dji.common.util.CommonCallbacks;
 import dji.keysdk.CameraKey;
 import dji.keysdk.KeyManager;
 import dji.sdk.flightcontroller.FlightController;
+import dji.sdk.mission.waypoint.WaypointMissionOperator;
 import dji.sdk.products.Aircraft;
 import dji.sdk.sdkmanager.DJISDKManager;
 import dji.ux.panel.CameraSettingAdvancedPanel;
@@ -55,9 +67,6 @@ import dji.ux.widget.config.CameraConfigStorageWidget;
 import dji.ux.widget.config.CameraConfigWBWidget;
 import dji.ux.widget.controls.CameraControlsWidget;
 import dji.ux.widget.controls.LensControlWidget;
-
-import static com.dji.ux.sample.mqtt.SmartMqtt.ACTION_CONNECT;
-import static com.dji.ux.sample.mqtt.SmartMqtt.ACTION_SUBSCRIBE;
 
 /**
  * Activity that shows all the UI elements together
@@ -166,7 +175,7 @@ public class CompleteWidgetActivity extends Activity {
 
             }
         });
-        SmartMqtt.getInstance().subscribe("uav.dji.status." + serialNumber, new MqttCallback() {
+        SmartMqtt.getInstance().subscribe("uav.dji.status." + "12345", new MqttCallback() {
             @Override
             public void connectionLost(Throwable cause) {
             }
@@ -175,7 +184,35 @@ public class CompleteWidgetActivity extends Activity {
             public void messageArrived(String topic, MqttMessage message) {
                 Log.d("tag", "message>>" + new String(message.getPayload()));
                 Log.d("tag", "topic>>" + topic);
-                Toast.makeText(CompleteWidgetActivity.this, new String(message.getPayload()), Toast.LENGTH_SHORT).show();
+                try {
+                    JSONObject jsonObject = new JSONObject(new String(message.getPayload()));
+                    int dataCmds = jsonObject.getInt("dataCmds");
+                    if (dataCmds == 2) {
+                        //平台给无人机下发航点任务
+                        if (flightController != null) {
+                            JSONObject jsonObject1 = jsonObject.getJSONObject("data");
+                            JSONArray points = jsonObject1.getJSONArray("points");
+                            List<MqPoint> mqPointList = new ArrayList<>();
+                            for (int i = 0; i < points.length(); i++) {
+                                JSONObject jsonObject2 = points.getJSONObject(0);
+                                MqPoint mqPoint = new MqPoint();
+                                mqPoint.setLongitude(jsonObject2.getDouble("longitude"));
+                                mqPoint.setLatitude(jsonObject2.getDouble("latitude"));
+                                mqPoint.setAltitude(BigDecimal.valueOf(jsonObject2.getDouble("altitude")).floatValue());
+                                mqPointList.add(mqPoint);
+                            }
+                            configWayPointMission(mqPointList);
+                        }
+                    } else if (dataCmds == 3) {
+                        //平台给无人机下发返航指令给无人机，无人机接收到指令，立即返航。
+                        if (flightController != null) {
+                            flightController.startGoHome(djiError -> Toast.makeText(CompleteWidgetActivity.this, "GoHome Error：" + djiError, Toast.LENGTH_SHORT).show());
+                        }
+                    }
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                    showToast("json解析失败：" + new String(message.getPayload()));
+                }
             }
 
             @Override
@@ -186,6 +223,66 @@ public class CompleteWidgetActivity extends Activity {
 
         String rtmpUrl = getIntent().getStringExtra(MainActivity.LAST_USED_RTMP);
         startLiveShow(rtmpUrl);
+    }
+
+
+    private void showToast(String message) {
+        Toast.makeText(CompleteWidgetActivity.this, message, Toast.LENGTH_SHORT).show();
+    }
+
+    private WaypointMission.Builder waypointMissionBuilder;
+
+    private void configWayPointMission(List<MqPoint> mqPointList) {
+        float speed = 10.0f;
+        if (waypointMissionBuilder == null) {
+            waypointMissionBuilder = new WaypointMission.Builder().finishedAction(WaypointMissionFinishedAction.NO_ACTION)
+                    .headingMode(WaypointMissionHeadingMode.AUTO)
+                    .autoFlightSpeed(speed)
+                    .maxFlightSpeed(speed)
+                    .flightPathMode(WaypointMissionFlightPathMode.NORMAL);
+        } else {
+            waypointMissionBuilder.finishedAction(WaypointMissionFinishedAction.NO_ACTION)
+                    .headingMode(WaypointMissionHeadingMode.AUTO)
+                    .autoFlightSpeed(speed)
+                    .maxFlightSpeed(speed)
+                    .flightPathMode(WaypointMissionFlightPathMode.NORMAL);
+        }
+        for (MqPoint mqPoint : mqPointList) {
+            Waypoint waypoint = new Waypoint(mqPoint.getLatitude(), mqPoint.getLongitude(), mqPoint.getAltitude());
+            //new Waypoint(point.latitude, point.longitude, altitude);
+            waypointMissionBuilder.addWaypoint(waypoint);
+        }
+
+        if (waypointMissionBuilder.getWaypointList().size() > 0) {
+//            for (int i = 0; i < waypointMissionBuilder.getWaypointList().size(); i++) {
+//                waypointMissionBuilder.getWaypointList().get(i).altitude = altitude;
+//            }
+            showToast("Set Waypoint attitude successfully");
+        }
+        DJIError error = getWaypointMissionOperator().loadMission(waypointMissionBuilder.build());
+        if (error == null) {
+            showToast("loadWaypoint succeeded");
+        } else {
+            showToast("loadWaypoint failed " + error.getDescription());
+        }
+        getWaypointMissionOperator().uploadMission(error1 -> {
+            if (error1 == null) {
+                showToast("Mission upload successfully!");
+            } else {
+                showToast("Mission upload failed, error: " + error1.getDescription() + " retrying...");
+                getWaypointMissionOperator().retryUploadMission(null);
+            }
+        });
+        getWaypointMissionOperator().startMission(error12 -> showToast("Mission Start: " + (error12 == null ? "Successfully" : error12.getDescription())));
+    }
+
+    private WaypointMissionOperator instance;
+
+    private WaypointMissionOperator getWaypointMissionOperator() {
+        if (instance == null) {
+            instance = DJISDKManager.getInstance().getMissionControl().getWaypointMissionOperator();
+        }
+        return instance;
     }
 
     private Timer timer;
@@ -209,7 +306,7 @@ public class CompleteWidgetActivity extends Activity {
                     jsonObjectInner.put("droneLatitude", mAircraftLat);//无人机纬度
                     jsonObjectInner.put("altitude", mAircraftAltitude);//无人机高度
                     jsonObjectInner.put("speed", mSpeed);//无人机飞行速度：单位：米/秒）
-                    jsonObjectInner.put("electricQuantity", "");//无人机剩余电量，取值范围（0-100）
+                    jsonObjectInner.put("electricQuantity", battery);//无人机剩余电量，取值范围（0-100）
                     jsonObjectInner.put("orientation", "");//无人机机头朝向
                     jsonObjectInner.put("seqNum", "");//卫星信号强度
                     jsonObjectInner.put("receivedSeqNum", "");//接收卫星数量
@@ -223,7 +320,7 @@ public class CompleteWidgetActivity extends Activity {
                     e.printStackTrace();
                 }
 
-                SmartMqtt.getInstance().sendData(jsonObject.toString(), "uav.dji.status." + serialNumber);
+                SmartMqtt.getInstance().sendData(jsonObject.toString(), "uav.dji.status." + "12345");
                 SmartMqtt.getInstance().sendData(jsonObject.toString(), "uav.dji.status");
                 Log.e("tag", "==========");
             }
@@ -239,9 +336,13 @@ public class CompleteWidgetActivity extends Activity {
     private float mSpeed = 0.0f;
     private double mAircraftHomeLat = 0.0;
     private double mAircraftHomeLng = 0.0;
+    private int battery = 0;
 
     private void initSerialNumber() {
         Aircraft aircraft = (Aircraft) DJISDKManager.getInstance().getProduct();
+        if (null != aircraft) {
+            aircraft.getBattery().setStateCallback(djiBatteryState -> battery = djiBatteryState.getCurrent());
+        }
         if (null != aircraft && null != aircraft.getFlightController()) {
             flightController = aircraft.getFlightController();
             flightController.getSerialNumber(new CommonCallbacks.CompletionCallbackWith<String>() {
@@ -274,6 +375,7 @@ public class CompleteWidgetActivity extends Activity {
                 }
 
             });
+//            flightController.getCompass().setCompassStateCallback();
         }
     }
 
@@ -435,6 +537,11 @@ public class CompleteWidgetActivity extends Activity {
     @Override
     protected void onDestroy() {
         mapWidget.onDestroy();
+        try {
+            SmartMqtt.getInstance().release();
+        } catch (MqttException e) {
+            e.printStackTrace();
+        }
         super.onDestroy();
     }
 
