@@ -16,6 +16,7 @@ import android.view.animation.Animation;
 import android.view.animation.Transformation;
 import android.widget.FrameLayout;
 import android.widget.RelativeLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.dji.mapkit.core.maps.DJIMap;
@@ -102,6 +103,9 @@ public class CompleteWidgetActivity extends Activity {
     private int deviceWidth;
     private int deviceHeight;
 
+    private TextView tvMqttState;
+    private TextView tvMqttMsg;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -133,6 +137,9 @@ public class CompleteWidgetActivity extends Activity {
         secondaryFPVWidget = findViewById(R.id.secondary_fpv_widget);
         secondaryFPVWidget.setOnClickListener(view -> swapVideoSource());
 
+        tvMqttState = findViewById(R.id.mqtt_state);
+        tvMqttMsg = findViewById(R.id.mqtt_msg);
+
         fpvWidget.setCameraIndexListener((cameraIndex, lensIndex) -> cameraWidgetKeyIndexUpdated(fpvWidget.getCameraKeyIndex(), fpvWidget.getLensKeyIndex()));
         updateSecondaryVideoVisibility();
 
@@ -144,6 +151,7 @@ public class CompleteWidgetActivity extends Activity {
             @Override
             public void onActionSuccess(int action, IMqttToken asyncActionToken) {
                 if (action == ACTION_CONNECT) {
+                    tvMqttState.setText("Connected");
                     initTimer();
                 } else if (action == ACTION_SUBSCRIBE) {
 
@@ -152,7 +160,9 @@ public class CompleteWidgetActivity extends Activity {
 
             @Override
             public void onActionFailure(int action, IMqttToken asyncActionToken, Throwable exception) {
-
+                if (action == ACTION_CONNECT) {
+                    tvMqttState.setText("DisConnected");
+                }
             }
 
             @Override
@@ -175,7 +185,7 @@ public class CompleteWidgetActivity extends Activity {
 
             }
         });
-        SmartMqtt.getInstance().subscribe("uav.dji.status." + "12345", new MqttCallback() {
+        SmartMqtt.getInstance().subscribe("uav.dji.operation.12345", new MqttCallback() {
             @Override
             public void connectionLost(Throwable cause) {
             }
@@ -184,6 +194,9 @@ public class CompleteWidgetActivity extends Activity {
             public void messageArrived(String topic, MqttMessage message) {
                 Log.d("tag", "message>>" + new String(message.getPayload()));
                 Log.d("tag", "topic>>" + topic);
+
+                tvMqttMsg.setText("MQTT New Message:" + new String(message.getPayload()));
+
                 try {
                     JSONObject jsonObject = new JSONObject(new String(message.getPayload()));
                     int dataCmds = jsonObject.getInt("dataCmds");
@@ -224,7 +237,6 @@ public class CompleteWidgetActivity extends Activity {
         String rtmpUrl = getIntent().getStringExtra(MainActivity.LAST_USED_RTMP);
         startLiveShow(rtmpUrl);
     }
-
 
     private void showToast(String message) {
         Toast.makeText(CompleteWidgetActivity.this, message, Toast.LENGTH_SHORT).show();
@@ -320,7 +332,7 @@ public class CompleteWidgetActivity extends Activity {
                     e.printStackTrace();
                 }
 
-                SmartMqtt.getInstance().sendData(jsonObject.toString(), "uav.dji.status." + "12345");
+                SmartMqtt.getInstance().sendData(jsonObject.toString(), "uav.dji.status.12345");
                 SmartMqtt.getInstance().sendData(jsonObject.toString(), "uav.dji.status");
                 Log.e("tag", "==========");
             }
