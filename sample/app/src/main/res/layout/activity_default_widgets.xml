@@ -404,15 +404,13 @@
         android:layout_height="wrap_content"
         android:layout_alignParentLeft="true"
         android:layout_alignParentBottom="true"
-        android:layout_marginBottom="3dp"
-        android:text="state" />
+        android:layout_marginBottom="3dp" />
 
     <TextView
         android:id="@+id/mqtt_msg"
         android:layout_width="200dp"
         android:layout_height="wrap_content"
-        android:layout_above="@+id/mqtt_state"
-        android:text="msg" />
+        android:layout_above="@+id/mqtt_state" />
 
 
 </RelativeLayout>

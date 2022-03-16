@@ -153,6 +153,7 @@ public class CompleteWidgetActivity extends Activity {
                 if (action == ACTION_CONNECT) {
                     tvMqttState.setText("Connected");
                     initTimer();
+                    initSubscribe();
                 } else if (action == ACTION_SUBSCRIBE) {
 
                 }
@@ -178,54 +179,6 @@ public class CompleteWidgetActivity extends Activity {
             @Override
             public void messageArrived(String topic, MqttMessage message) {
 
-            }
-
-            @Override
-            public void deliveryComplete(IMqttDeliveryToken token) {
-
-            }
-        });
-        SmartMqtt.getInstance().subscribe("uav.dji.operation.12345", new MqttCallback() {
-            @Override
-            public void connectionLost(Throwable cause) {
-            }
-
-            @Override
-            public void messageArrived(String topic, MqttMessage message) {
-                Log.d("tag", "message>>" + new String(message.getPayload()));
-                Log.d("tag", "topic>>" + topic);
-
-                tvMqttMsg.setText("MQTT New Message:" + new String(message.getPayload()));
-
-                try {
-                    JSONObject jsonObject = new JSONObject(new String(message.getPayload()));
-                    int dataCmds = jsonObject.getInt("dataCmds");
-                    if (dataCmds == 2) {
-                        //平台给无人机下发航点任务
-                        if (flightController != null) {
-                            JSONObject jsonObject1 = jsonObject.getJSONObject("data");
-                            JSONArray points = jsonObject1.getJSONArray("points");
-                            List<MqPoint> mqPointList = new ArrayList<>();
-                            for (int i = 0; i < points.length(); i++) {
-                                JSONObject jsonObject2 = points.getJSONObject(0);
-                                MqPoint mqPoint = new MqPoint();
-                                mqPoint.setLongitude(jsonObject2.getDouble("longitude"));
-                                mqPoint.setLatitude(jsonObject2.getDouble("latitude"));
-                                mqPoint.setAltitude(BigDecimal.valueOf(jsonObject2.getDouble("altitude")).floatValue());
-                                mqPointList.add(mqPoint);
-                            }
-                            configWayPointMission(mqPointList);
-                        }
-                    } else if (dataCmds == 3) {
-                        //平台给无人机下发返航指令给无人机，无人机接收到指令，立即返航。
-                        if (flightController != null) {
-                            flightController.startGoHome(djiError -> Toast.makeText(CompleteWidgetActivity.this, "GoHome Error：" + djiError, Toast.LENGTH_SHORT).show());
-                        }
-                    }
-                } catch (JSONException e) {
-                    e.printStackTrace();
-                    showToast("json解析失败：" + new String(message.getPayload()));
-                }
             }
 
             @Override
@@ -313,7 +266,7 @@ public class CompleteWidgetActivity extends Activity {
                     jsonObject.put("dataCmds", 1);
                     jsonObject.put("uavSn", "0ASUG1B00400HN");
                     JSONObject jsonObjectInner = new JSONObject();
-                    jsonObjectInner.put("timestamp", System.currentTimeMillis());
+                    jsonObjectInner.put("timestamp", System.currentTimeMillis() / 1000);
                     jsonObjectInner.put("droneLongitude", mAircraftLng);//无人机经度
                     jsonObjectInner.put("droneLatitude", mAircraftLat);//无人机纬度
                     jsonObjectInner.put("altitude", mAircraftAltitude);//无人机高度
@@ -338,6 +291,105 @@ public class CompleteWidgetActivity extends Activity {
             }
         };
         timer.schedule(task, 0, 100);
+    }
+
+    private void initSubscribe() {
+        SmartMqtt.getInstance().subscribe("uav.dji.operation.12345", new MqttCallback() {
+            @Override
+            public void connectionLost(Throwable cause) {
+            }
+
+            @Override
+            public void messageArrived(String topic, MqttMessage message) {
+                Log.d("tag", "message>>" + new String(message.getPayload()));
+                Log.d("tag", "topic>>" + topic);
+
+                tvMqttMsg.setText("MQTT New Message:" + new String(message.getPayload()));
+
+                try {
+                    JSONObject jsonObject = new JSONObject(new String(message.getPayload()));
+                    int dataCmds = jsonObject.getInt("dataCmds");
+                    if (dataCmds == 2) {
+                        //平台给无人机下发航点任务
+                        if (flightController != null) {
+                            JSONObject jsonObject1 = jsonObject.getJSONObject("data");
+                            JSONArray points = jsonObject1.getJSONArray("points");
+                            List<MqPoint> mqPointList = new ArrayList<>();
+                            for (int i = 0; i < points.length(); i++) {
+                                JSONObject jsonObject2 = points.getJSONObject(0);
+                                MqPoint mqPoint = new MqPoint();
+                                mqPoint.setLongitude(jsonObject2.getDouble("longitude"));
+                                mqPoint.setLatitude(jsonObject2.getDouble("latitude"));
+                                mqPoint.setAltitude(BigDecimal.valueOf(jsonObject2.getDouble("altitude")).floatValue());
+                                mqPointList.add(mqPoint);
+                            }
+                            configWayPointMission(mqPointList);
+                        }
+                    } else if (dataCmds == 3) {
+                        //平台给无人机下发返航指令给无人机，无人机接收到指令，立即返航。
+                        if (flightController != null) {
+                            flightController.startGoHome(djiError -> Toast.makeText(CompleteWidgetActivity.this, "GoHome Error：" + djiError, Toast.LENGTH_SHORT).show());
+                        }
+                    }
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                    showToast("json解析失败：" + new String(message.getPayload()));
+                }
+            }
+
+            @Override
+            public void deliveryComplete(IMqttDeliveryToken token) {
+
+            }
+        });
+        SmartMqtt.getInstance().subscribe("uav.dji.wayPointMission.12345", new MqttCallback() {
+            @Override
+            public void connectionLost(Throwable cause) {
+            }
+
+            @Override
+            public void messageArrived(String topic, MqttMessage message) {
+                Log.d("tag", "message>>" + new String(message.getPayload()));
+                Log.d("tag", "topic>>" + topic);
+
+                tvMqttMsg.setText("MQTT New Message:" + new String(message.getPayload()));
+
+                try {
+                    JSONObject jsonObject = new JSONObject(new String(message.getPayload()));
+                    int dataCmds = jsonObject.getInt("dataCmds");
+                    if (dataCmds == 2) {
+                        //平台给无人机下发航点任务
+                        if (flightController != null) {
+                            JSONObject jsonObject1 = jsonObject.getJSONObject("data");
+                            JSONArray points = jsonObject1.getJSONArray("points");
+                            List<MqPoint> mqPointList = new ArrayList<>();
+                            for (int i = 0; i < points.length(); i++) {
+                                JSONObject jsonObject2 = points.getJSONObject(0);
+                                MqPoint mqPoint = new MqPoint();
+                                mqPoint.setLongitude(jsonObject2.getDouble("longitude"));
+                                mqPoint.setLatitude(jsonObject2.getDouble("latitude"));
+                                mqPoint.setAltitude(BigDecimal.valueOf(jsonObject2.getDouble("altitude")).floatValue());
+                                mqPointList.add(mqPoint);
+                            }
+                            configWayPointMission(mqPointList);
+                        }
+                    } else if (dataCmds == 3) {
+                        //平台给无人机下发返航指令给无人机，无人机接收到指令，立即返航。
+                        if (flightController != null) {
+                            flightController.startGoHome(djiError -> Toast.makeText(CompleteWidgetActivity.this, "GoHome Error：" + djiError, Toast.LENGTH_SHORT).show());
+                        }
+                    }
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                    showToast("json解析失败：" + new String(message.getPayload()));
+                }
+            }
+
+            @Override
+            public void deliveryComplete(IMqttDeliveryToken token) {
+
+            }
+        });
     }
 
     private FlightController flightController;
